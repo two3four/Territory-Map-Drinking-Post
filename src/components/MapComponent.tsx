@@ -71,7 +71,7 @@ export default function MapComponent({ markers, geojson, version = 0 }: MapCompo
     const isHovered = geoId === hoveredGeoId;
 
     // Default style (Empty/NULL)
-    let style = {
+    let style: any = {
       fillColor: "transparent",
       weight: isHovered ? 2 : 1,
       opacity: 1,

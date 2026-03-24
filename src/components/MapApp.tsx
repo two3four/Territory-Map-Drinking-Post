@@ -15,7 +15,7 @@ const MapComponent = dynamic(() => import("./MapComponent"), {
       <p className="text-[var(--brand-primary)] font-medium animate-pulse">Loading Territory Map...</p>
     </div>
   )
-});
+}) as any;
 
 export default function MapApp() {
   const [markers, setMarkers] = useState<MarkerData[]>([]);
