@@ -22,16 +22,28 @@ export default function MapApp() {
   const [geojson, setGeojson] = useState<any>(null);
   const [dataVersion, setDataVersion] = useState(0);
   const [isLoadingData, setIsLoadingData] = useState(true);
+  const [baseGeojson, setBaseGeojson] = useState<any>(null);
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh = false) => {
     setIsLoadingData(true);
     try {
-      const geojsonData = await fetch(`/counties.geojson`).then(res => res.json()).catch(() => null);
+      let geojsonData = baseGeojson;
+      
+      // Only fetch the heavy 2.4MB GeoJSON if we don't already have it
+      if (!geojsonData) {
+        console.log("Loading base GeoJSON for the first time...");
+        geojsonData = await fetch(`/counties.geojson`).then(res => res.json()).catch(() => null);
+        if (geojsonData) {
+            setBaseGeojson(geojsonData);
+        }
+      }
 
       if (geojsonData) {
-        // Fetch LIVE data from Google Sheets via browser directly to bypass Vercel serverless restrictions!
+        // Fetch LIVE data from Google Sheets - this is very small and fast!
         const sheetId = "19ebXOn7uwi8ZimzpXQZXx0SIDku5PBgz1-fq4HPO8VQ";
         const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&t=${Date.now()}`;
+        
+        console.log("Fetching live spreadsheet data...");
         const csvRes = await fetch(sheetUrl);
         const csvText = await csvRes.text();
         const Papa = await import('papaparse');
@@ -48,13 +60,8 @@ export default function MapApp() {
 
         const activeFeatures: any[] = [];
         
-        // Clone features properly to avoid permanently losing original boundaries when switching statuses
-        const featuresCopy = geojsonData.features.map((f: any) => ({
-            ...f,
-            properties: { ...f.properties }
-        }));
-
-        featuresCopy.forEach((f: any) => {
+        // Use the geojson to create the mapped view
+        geojsonData.features.forEach((f: any) => {
             const geoId = String(f.properties.GEOID).replace(/[^0-9]/g, '').padStart(5, '0');
             const liveRow = liveDataByGeoId[geoId];
             
@@ -65,27 +72,32 @@ export default function MapApp() {
                 const status = (f.properties.Status || "").toLowerCase().trim();
                 
                 if (status === 'circle') {
+                     // Cache the original geometry if we haven't yet
                      if (!f.properties.originalGeometry) {
                          f.properties.originalGeometry = f.geometry;
                      }
-                     try {
-                         const tempFeature = { ...f, geometry: f.properties.originalGeometry };
-                         const centroid = turf.centroid(tempFeature);
-                         const boundary = turf.polygonToLine(tempFeature);
-                         const dist = turf.pointToLineDistance(centroid, boundary as any, { units: 'meters' });
-                         
-                         let radius = (dist <= 100) ? Math.max(25, dist * 0.25) : Math.min(48280, dist * 0.8);
-                         
-                         const buffer = turf.buffer(centroid, radius, { units: 'meters', steps: 64 });
-                         if (buffer) {
-                             f.geometry = buffer.geometry;
+                     
+                     // Optimization: Only re-calculate circle if we don't have one cached for this radius
+                     if (!f.properties.isCircle) {
+                         try {
+                             const centroid = turf.centroid(f);
+                             const tempFeature = { ...f, geometry: f.properties.originalGeometry };
+                             const boundary = turf.polygonToLine(tempFeature);
+                             const dist = turf.pointToLineDistance(centroid, boundary as any, { units: 'meters' });
+                             
+                             let radius = (dist <= 100) ? Math.max(25, dist * 0.25) : Math.min(48280, dist * 0.8);
+                             const buffer = turf.buffer(centroid, radius, { units: 'meters', steps: 64 });
+                             if (buffer) {
+                                 f.geometry = buffer.geometry;
+                             }
+                             f.properties.isCircle = true;
+                         } catch(err) {
+                             console.error("Circle error on ", geoId, err);
                          }
-                         f.properties.isCircle = true;
-                     } catch(err) {
-                         console.error("Circle error on ", geoId, err);
                      }
                 } else {
-                     if (f.properties.originalGeometry) {
+                     // Restore original shape if it's no longer a circle
+                     if (f.properties.isCircle && f.properties.originalGeometry) {
                          f.geometry = f.properties.originalGeometry;
                      }
                      f.properties.isCircle = false;
@@ -96,9 +108,10 @@ export default function MapApp() {
                 }
             } else {
                 f.properties.Status = null;
-                if (f.properties.originalGeometry) {
+                if (f.properties.isCircle && f.properties.originalGeometry) {
                     f.geometry = f.properties.originalGeometry;
                 }
+                f.properties.isCircle = false;
             }
         });
 
@@ -112,8 +125,9 @@ export default function MapApp() {
           };
         });
 
-        setGeojson(geojsonData);
+        // Trigger a re-render of the map component
         setMarkers(derivedMarkers);
+        setGeojson({...geojsonData}); // Spread to force React to see as new object
         setDataVersion(Date.now());
       }
     } catch (error) {
@@ -124,8 +138,8 @@ export default function MapApp() {
   };
 
   const refreshData = async () => {
-    // Simply re-fetch the live sheet using loadData
-    await loadData();
+    // We already have the base geojson, so this will only fetch the small CSV!
+    await loadData(true);
   };
 
   useEffect(() => {
