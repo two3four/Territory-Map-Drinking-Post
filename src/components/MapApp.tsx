@@ -26,13 +26,42 @@ export default function MapApp() {
   const loadData = async () => {
     setIsLoadingData(true);
     try {
-      const geojsonData = await fetch(`/counties.geojson?t=${Date.now()}`).then(res => res.json()).catch(() => null);
+      const geojsonData = await fetch(`/counties.geojson`).then(res => res.json()).catch(() => null);
 
       if (geojsonData) {
-        setGeojson(geojsonData);
+        // Fetch LIVE data from Google Sheets via browser directly to bypass Vercel serverless restrictions!
+        const sheetUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRhehLlJ-ay1vxSTCs7wwdetEPindGJebs62ibjpeYqnB6DQzz8N5sa2h6xtiBKE0WeufcHqXhrkXkN/pub?output=csv&t=${Date.now()}`;
+        const csvRes = await fetch(sheetUrl);
+        const csvText = await csvRes.text();
+        const Papa = await import('papaparse');
+        
+        const parsed = Papa.default.parse(csvText, { header: true, skipEmptyLines: true });
+        
+        const liveDataByGeoId: Record<string, any> = {};
+        parsed.data.forEach((row: any) => {
+            if (row.GEOID) {
+                const geoId = String(row.GEOID).replace(/[^0-9]/g, '').padStart(5, '0');
+                liveDataByGeoId[geoId] = row;
+            }
+        });
 
-        // Extract markers from features that have a Status
-        const activeFeatures = geojsonData.features.filter((f: any) => f.properties.Status);
+        const activeFeatures: any[] = [];
+        geojsonData.features.forEach((f: any) => {
+            const geoId = String(f.properties.GEOID).replace(/[^0-9]/g, '').padStart(5, '0');
+            const liveRow = liveDataByGeoId[geoId];
+            
+            if (liveRow) {
+                f.properties.Status = liveRow.Status || null;
+                f.properties.Business_n = liveRow.Business_n || f.properties.Business_n || "";
+                
+                if (f.properties.Status) {
+                    activeFeatures.push(f);
+                }
+            } else {
+                f.properties.Status = null;
+            }
+        });
+
         const derivedMarkers: MarkerData[] = activeFeatures.map((f: any) => {
           const centroid = turf.centroid(f);
           return {
@@ -42,6 +71,8 @@ export default function MapApp() {
             Longitude: centroid.geometry.coordinates[0]
           };
         });
+
+        setGeojson(geojsonData);
         setMarkers(derivedMarkers);
         setDataVersion(Date.now());
       }
@@ -53,14 +84,8 @@ export default function MapApp() {
   };
 
   const refreshData = async () => {
-    setIsLoadingData(true);
-    try {
-      await fetch('/api/update-map', { method: 'POST' });
-      await loadData();
-    } catch (error) {
-      console.error("Failed to generate and load data:", error);
-      setIsLoadingData(false);
-    }
+    // Simply re-fetch the live sheet using loadData
+    await loadData();
   };
 
   useEffect(() => {
