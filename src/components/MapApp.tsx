@@ -30,7 +30,8 @@ export default function MapApp() {
 
       if (geojsonData) {
         // Fetch LIVE data from Google Sheets via browser directly to bypass Vercel serverless restrictions!
-        const sheetUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRhehLlJ-ay1vxSTCs7wwdetEPindGJebs62ibjpeYqnB6DQzz8N5sa2h6xtiBKE0WeufcHqXhrkXkN/pub?output=csv&t=${Date.now()}`;
+        const sheetId = "19ebXOn7uwi8ZimzpXQZXx0SIDku5PBgz1-fq4HPO8VQ";
+        const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&t=${Date.now()}`;
         const csvRes = await fetch(sheetUrl);
         const csvText = await csvRes.text();
         const Papa = await import('papaparse');

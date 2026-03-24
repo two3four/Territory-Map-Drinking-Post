@@ -21,7 +21,8 @@ async function run() {
         // 1. Fetch CSV from Google Sheets
         const Papa = require('papaparse');
         // Add a timestamp parameter to bust Google Sheets cache
-        const sheetUrl = `https://docs.google.com/spreadsheets/d/e/2PACX-1vRhehLlJ-ay1vxSTCs7wwdetEPindGJebs62ibjpeYqnB6DQzz8N5sa2h6xtiBKE0WeufcHqXhrkXkN/pub?output=csv&t=${Date.now()}`;
+        const sheetId = "19ebXOn7uwi8ZimzpXQZXx0SIDku5PBgz1-fq4HPO8VQ";
+        const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&t=${Date.now()}`;
         
         console.log(`Fetching data from Google Sheet: ${sheetUrl}`);
         const response = await fetch(sheetUrl);
