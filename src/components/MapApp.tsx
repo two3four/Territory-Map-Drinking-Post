@@ -46,7 +46,14 @@ export default function MapApp() {
         });
 
         const activeFeatures: any[] = [];
-        geojsonData.features.forEach((f: any) => {
+        
+        // Clone features properly to avoid permanently losing original boundaries when switching statuses
+        const featuresCopy = geojsonData.features.map((f: any) => ({
+            ...f,
+            properties: { ...f.properties }
+        }));
+
+        featuresCopy.forEach((f: any) => {
             const geoId = String(f.properties.GEOID).replace(/[^0-9]/g, '').padStart(5, '0');
             const liveRow = liveDataByGeoId[geoId];
             
@@ -54,11 +61,43 @@ export default function MapApp() {
                 f.properties.Status = liveRow.Status || null;
                 f.properties.Business_n = liveRow.Business_n || f.properties.Business_n || "";
                 
+                const status = (f.properties.Status || "").toLowerCase().trim();
+                
+                if (status === 'circle') {
+                     if (!f.properties.originalGeometry) {
+                         f.properties.originalGeometry = f.geometry;
+                     }
+                     try {
+                         const tempFeature = { ...f, geometry: f.properties.originalGeometry };
+                         const centroid = turf.centroid(tempFeature);
+                         const boundary = turf.polygonToLine(tempFeature);
+                         const dist = turf.pointToLineDistance(centroid, boundary as any, { units: 'meters' });
+                         
+                         let radius = (dist <= 100) ? Math.max(25, dist * 0.25) : Math.min(48280, dist * 0.8);
+                         
+                         const buffer = turf.buffer(centroid, radius, { units: 'meters', steps: 64 });
+                         if (buffer) {
+                             f.geometry = buffer.geometry;
+                         }
+                         f.properties.isCircle = true;
+                     } catch(err) {
+                         console.error("Circle error on ", geoId, err);
+                     }
+                } else {
+                     if (f.properties.originalGeometry) {
+                         f.geometry = f.properties.originalGeometry;
+                     }
+                     f.properties.isCircle = false;
+                }
+
                 if (f.properties.Status) {
                     activeFeatures.push(f);
                 }
             } else {
                 f.properties.Status = null;
+                if (f.properties.originalGeometry) {
+                    f.geometry = f.properties.originalGeometry;
+                }
             }
         });
 
