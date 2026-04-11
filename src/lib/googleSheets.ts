@@ -2,13 +2,16 @@ import Papa from "papaparse";
 
 export interface MarkerData {
   Name: string;
+  County?: string;
+  BusinessName?: string;
   Latitude: number;
   Longitude: number;
   Status: string;
+  HasExactCoordinates?: boolean;
 }
 
 export async function fetchSheetData(): Promise<MarkerData[]> {
-  const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTPWnmKhskrLM4_J4gxt2RE8Xtjiah1XiIMpIz92LjWlkfjzu2B8Bge_6gfnSvtxrgroFftxd7tvCtW/pub?output=csv";
+  const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRhehLlJ-ay1vxSTCs7wwdetEPindGJebs62ibjpeYqnB6DQzz8N5sa2h6xtiBKE0WeufcHqXhrkXkN/pub?output=csv";
   
   try {
     const res = await fetch(CSV_URL, {
@@ -29,9 +32,9 @@ export async function fetchSheetData(): Promise<MarkerData[]> {
         complete: (results) => {
           // Normalize case and properties
           const markers = results.data.map((row: any) => ({
-            Name: row.Name || row.name || "Unknown",
-            Latitude: parseFloat(row.Latitude || row.latitude || row.lat),
-            Longitude: parseFloat(row.Longitude || row.longitude || row.long || row.lng),
+            Name: row.Name || row.name || row.Business_n || "Unknown",
+            Latitude: parseFloat(row.Lat || row.Latitude || row.latitude || row.lat),
+            Longitude: parseFloat(row.Long || row.Longitude || row.longitude || row.long || row.lng),
             Status: row.Status || row.status || "Active"
           })).filter(m => !isNaN(m.Latitude) && !isNaN(m.Longitude));
           

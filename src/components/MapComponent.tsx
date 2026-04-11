@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, GeoJSON, LayersControl, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import * as turf from "@turf/turf";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { MarkerData } from "@/lib/googleSheets";
 
 // Fix for default marker icons in Next.js + Leaflet
@@ -23,21 +23,31 @@ interface MapComponentProps {
   markers: MarkerData[];
   geojson: any;
   version?: number;
+  selectedMarker?: MarkerData | null;
 }
 
-export default function MapComponent({ markers, geojson, version = 0 }: MapComponentProps) {
+export default function MapComponent({ markers, geojson, version = 0, selectedMarker }: MapComponentProps) {
   const geoJsonLayerRef = useRef<L.GeoJSON>(null);
   const [hoverData, setHoverData] = useState<any>(null);
   const [hoveredGeoId, setHoveredGeoId] = useState<string | number | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
-  // Custom component to track mouse position on the map
   const MouseTracker = () => {
     useMapEvents({
       mousemove(e) {
         setMousePos({ x: e.containerPoint.x, y: e.containerPoint.y });
       },
     });
+    return null;
+  };
+
+  const ViewUpdater = ({ marker }: { marker?: MarkerData | null }) => {
+    const map = useMapEvents({}); // simple way to get map, or useMap()
+    useEffect(() => {
+      if (marker && marker.Latitude !== undefined && marker.Longitude !== undefined) {
+        map.flyTo([marker.Latitude, marker.Longitude], 8, { duration: 1.2 });
+      }
+    }, [marker, map]);
     return null;
   };
 
@@ -187,6 +197,7 @@ export default function MapComponent({ markers, geojson, version = 0 }: MapCompo
         preferCanvas={true}
       >
         <MouseTracker />
+        <ViewUpdater marker={selectedMarker} />
         <LayersControl position="topright">
           {/* ... existing layers control content ... */}
           <LayersControl.BaseLayer checked name="Street View">
@@ -231,6 +242,38 @@ export default function MapComponent({ markers, geojson, version = 0 }: MapCompo
                 key={`map-layer-${version}`}
               />
             )}
+          </LayersControl.Overlay>
+
+          <LayersControl.Overlay checked name="Dealer Pins">
+            {markers
+              .filter(m => m.HasExactCoordinates && !isNaN(m.Latitude) && !isNaN(m.Longitude))
+              .map((m, idx) => (
+                <Marker 
+                  key={`dealer-pin-${idx}`} 
+                  position={[m.Latitude, m.Longitude]}
+                  icon={L.icon({
+                    iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
+                    shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41],
+                    popupAnchor: [1, -34],
+                    shadowSize: [41, 41]
+                  })}
+                >
+                  <Popup>
+                    <div className="font-sans min-w-[150px]">
+                      <h3 className="font-bold text-[#1881B7] text-base">{m.BusinessName || m.Name}</h3>
+                      {m.County && <p className="text-xs text-gray-500 mb-2">County: {m.County}</p>}
+                      <div className="inline-block px-2 py-1 rounded bg-red-50 text-red-600 text-[10px] font-bold uppercase tracking-wider mb-1 border border-red-100">
+                        Dealer Location
+                      </div>
+                      <p className="mt-1 text-[10px] text-gray-400 font-mono">
+                        {m.Latitude.toFixed(4)}, {m.Longitude.toFixed(4)}
+                      </p>
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
           </LayersControl.Overlay>
         </LayersControl>
       </MapContainer>
