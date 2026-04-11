@@ -65,90 +65,40 @@ export default function MapApp() {
 
         const activeFeatures: any[] = [];
         
-        // Use the geojson to create the mapped view
+        // Efficiently merge LIVE spreadsheet data into the GeoJSON
         geojsonData.features.forEach((f: any) => {
             const geoId = String(f.properties.GEOID).replace(/[^0-9]/g, '').padStart(5, '0');
             const liveRow = liveDataByGeoId[geoId];
             
             if (liveRow) {
+                // Update properties with live values
                 f.properties.Status = liveRow.Status || null;
                 f.properties.Business_n = liveRow.Business_n || f.properties.Business_n || "";
-                f.properties.Latitude = liveRow.Latitude || liveRow.latitude || liveRow.lat || null;
-                f.properties.Longitude = liveRow.Longitude || liveRow.longitude || liveRow.long || liveRow.lng || null;
                 
-                const status = (f.properties.Status || "").toLowerCase().trim();
-                
-                if (status === 'circle') {
-                     // Cache the original geometry if we haven't yet
-                     if (!f.properties.originalGeometry) {
-                         f.properties.originalGeometry = f.geometry;
-                     }
-                     
-                     // Optimization: Only re-calculate circle if we don't have one cached for this radius
-                     if (!f.properties.isCircle) {
-                         try {
-                             const centroid = turf.centroid(f);
-                             const tempFeature = { ...f, geometry: f.properties.originalGeometry };
-                             const boundary = turf.polygonToLine(tempFeature);
-                             const dist = turf.pointToLineDistance(centroid, boundary as any, { units: 'meters' });
-                             
-                             let radius = (dist <= 100) ? Math.max(25, dist * 0.25) : Math.min(48280, dist * 0.8);
-                             const buffer = turf.buffer(centroid, radius, { units: 'meters', steps: 64 });
-                             if (buffer) {
-                                 f.geometry = buffer.geometry;
-                             }
-                             f.properties.isCircle = true;
-                         } catch(err) {
-                             console.error("Circle error on ", geoId, err);
-                         }
-                     }
-                } else {
-                     // Restore original shape if it's no longer a circle
-                     if (f.properties.isCircle && f.properties.originalGeometry) {
-                         f.geometry = f.properties.originalGeometry;
-                     }
-                     f.properties.isCircle = false;
-                }
-
-                if (f.properties.Status) {
-                    activeFeatures.push(f);
-                }
+                // If the live status is "circle", the geometry should already be pre-calculated 
+                // by the update-data.js script. We only update non-geometric properties here.
             } else {
                 f.properties.Status = null;
-                if (f.properties.isCircle && f.properties.originalGeometry) {
-                    f.geometry = f.properties.originalGeometry;
-                }
-                f.properties.isCircle = false;
             }
         });
 
-        const derivedMarkers: MarkerData[] = activeFeatures.map((f: any) => {
-          const centroid = turf.centroid(f);
-          const countyName = f.properties.NAME || "";
-          const businessName = f.properties.Business_n || "";
-          
-          const latStr = f.properties.Latitude;
-          const lngStr = f.properties.Longitude;
-          let lat = centroid.geometry.coordinates[1];
-          let lng = centroid.geometry.coordinates[0];
-          
-          if (latStr && !isNaN(parseFloat(latStr))) {
-             lat = parseFloat(latStr);
-          }
-          if (lngStr && !isNaN(parseFloat(lngStr))) {
-             lng = parseFloat(lngStr);
-          }
-          
-          return {
-            Name: businessName ? `${businessName} (${countyName})` : countyName || "Unknown",
-            County: countyName,
-            BusinessName: businessName,
-            Status: f.properties.Status,
-            Latitude: lat,
-            Longitude: lng,
-            HasExactCoordinates: !!latStr && !!lngStr
-          };
-        });
+        const derivedMarkers: MarkerData[] = geojsonData.features
+          .filter((f: any) => f.properties.Status)
+          .map((f: any) => {
+            const centroid = turf.centroid(f);
+            const countyName = f.properties.NAME || "";
+            const businessName = f.properties.Business_n || "";
+            
+            return {
+              Name: businessName ? `${businessName} (${countyName})` : countyName || "Unknown",
+              County: countyName,
+              BusinessName: businessName,
+              Status: f.properties.Status,
+              Latitude: centroid.geometry.coordinates[1],
+              Longitude: centroid.geometry.coordinates[0],
+              HasExactCoordinates: false
+            };
+          });
 
         // Also extract any pins from the CSV that have Lat/Lng coordinates
         const csvPins: MarkerData[] = [];

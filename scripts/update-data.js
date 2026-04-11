@@ -63,55 +63,39 @@ async function run() {
             const geoId = String(feature.properties.GEOID).replace(/[^0-9]/g, '').padStart(5, '0');
             const excelRow = excelByGeoId[geoId] || {};
 
-            // Merge properties
+            // Merge only ESSENTIAL properties to keep GeoJSON file size small
             let properties = {
-                ...feature.properties,
-                ...excelRow,
+                GEOID: geoId,
+                NAME: feature.properties.NAME || "",
+                State: excelRow.State || feature.properties.STATE_NAME || "",
                 Status: excelRow.Status || null,
+                Business_n: excelRow.Business_n || "",
                 isCircle: false
             };
-
-            delete properties.geom_wkt;
 
             let geometry = feature.geometry;
             const status = (properties.Status || '').toLowerCase();
 
-            // Handle "Circle" status with new dynamic logic
+            // Handle "Circle" status
             if (status === 'circle') {
                 try {
                     const centroid = turf.centroid(feature);
-
-                    // Convert polygon to line for distance calculation
-                    // handle MultiPolygon by converting to feature and getting perimeter
                     const boundary = turf.polygonToLine(feature);
-
-                    // Distance to boundary in meters
                     const distanceToBoundary = turf.pointToLineDistance(centroid, boundary, { units: 'meters' });
 
-                    let radius;
-                    if (distanceToBoundary <= 100) {
-                        // Reduced/internal circle (approx 1/4 size)
-                        // Minimum 25m if space allows, or scaled
-                        radius = Math.max(25, distanceToBoundary * 0.25);
-                        console.log(`Small boundary detected for ${geoId} (${properties.NAME}): ${distanceToBoundary.toFixed(2)}m. Using radius: ${radius.toFixed(2)}m`);
-                    } else {
-                        // Adjust according to available space
-                        // We use 30 miles (48280m) but cap it at 80% of distance to boundary
-                        // to ensure it stays mostly internal/clean if requested
-                        radius = Math.min(48280, distanceToBoundary * 0.8);
-                    }
+                    let radius = (distanceToBoundary <= 100) ? Math.max(25, distanceToBoundary * 0.25) : Math.min(48280, distanceToBoundary * 0.8);
 
-                    const buffer = turf.buffer(centroid, radius, { units: 'meters', steps: 256 });
+                    const buffer = turf.buffer(centroid, radius, { units: 'meters', steps: 32 }); // Reduced steps from 256 for performance
                     geometry = buffer.geometry;
                     properties.isCircle = true;
-                    properties.bufferRadius = radius;
+                    properties.bufferRadius = Math.round(radius);
                 } catch (err) {
                     console.error(`Error calculating dynamic buffer for ${geoId}:`, err.message);
                 }
             }
 
-            // Simplify and round coordinates
-            const simplified = turf.simplify(turf.feature(geometry, properties), { tolerance: 0.005, highQuality: false });
+            // Simplify geometry more aggressively (0.01 tolerance) and round coordinates
+            const simplified = turf.simplify(turf.feature(geometry, properties), { tolerance: 0.01, highQuality: false });
 
             if (simplified.geometry) {
                 roundCoordinates(simplified.geometry.coordinates);
