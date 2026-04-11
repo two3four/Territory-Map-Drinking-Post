@@ -41,11 +41,40 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
     return null;
   };
 
+  // CREATE PREMIUM CUSTOM PINK ICON
+  const customMarkerIcon = useMemo(() => L.divIcon({
+    className: 'custom-pin-container',
+    html: `
+      <div class="pin-wrapper">
+        <div class="pin-pulse"></div>
+        <div class="pin-main">
+          <div class="pin-inner"></div>
+        </div>
+      </div>
+    `,
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32]
+  }), []);
+
   const ViewUpdater = ({ marker }: { marker?: MarkerData | null }) => {
-    const map = useMapEvents({}); // simple way to get map, or useMap()
+    const map = useMapEvents({});
+    const lastMarkerRef = useRef<string | null>(null);
+
     useEffect(() => {
       if (marker && marker.Latitude !== undefined && marker.Longitude !== undefined) {
-        map.flyTo([marker.Latitude, marker.Longitude], 8, { duration: 1.2 });
+        // Only fly if this is a DIFFERENT marker than the last one we flew to
+        // or the first time we see a marker.
+        const markerKey = `${marker.Latitude}-${marker.Longitude}-${marker.Name}`;
+        if (lastMarkerRef.current !== markerKey) {
+          map.flyTo([marker.Latitude, marker.Longitude], 10, { 
+            duration: 1.5,
+            easeLinearity: 0.25
+          });
+          lastMarkerRef.current = markerKey;
+        }
+      } else if (!marker) {
+        lastMarkerRef.current = null;
       }
     }, [marker, map]);
     return null;
@@ -120,8 +149,6 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
     layer.on({
       mouseover: (e) => {
         const geoId = feature.properties.GEOID || feature.properties.NAME;
-        const hasMarker = activeCountyIds.has(geoId);
-
         setHoveredGeoId(geoId);
         setHoverData({
           name: feature.properties.NAME,
@@ -131,7 +158,6 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
           isCircle: feature.properties.isCircle
         });
 
-        // Optional: Manual boost for absolute smoothness
         const target = e.target;
         target.setStyle({
           weight: 2,
@@ -155,12 +181,67 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
     });
   };
 
-  // Center US roughly
   const defaultCenter: [number, number] = [39.8283, -98.5795];
 
   return (
     <div className="h-full w-full relative group">
-      {/* SVG Definitions for Premium Effects */}
+      {/* SVG Definitions and STYLES for Premium Pins */}
+      <style jsx global>{`
+        .custom-pin-container {
+          background: transparent;
+          border: none;
+        }
+        .pin-wrapper {
+          position: relative;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+        }
+        .pin-main {
+          width: 24px;
+          height: 24px;
+          background: #1881B7;
+          border-radius: 50% 50% 50% 0;
+          transform: rotate(-45deg);
+          border: 2px solid white;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 2;
+        }
+        .pin-inner {
+          width: 10px;
+          height: 10px;
+          background: white;
+          border-radius: 50%;
+          transform: rotate(45deg);
+        }
+        .pin-pulse {
+          position: absolute;
+          width: 40px;
+          height: 40px;
+          background: rgba(24, 129, 183, 0.4);
+          border-radius: 50%;
+          animation: pin-pulse-anim 2s infinite;
+          z-index: 1;
+        }
+        @keyframes pin-pulse-anim {
+          0% { transform: scale(0.5); opacity: 1; }
+          100% { transform: scale(1.5); opacity: 0; }
+        }
+        .premium-circle {
+          filter: url(#floatShadow);
+          fill: url(#sphereGradient) !important;
+          stroke: #64748b;
+          stroke-width: 1.5px;
+          transition: all 0.3s ease;
+        }
+      `}</style>
+
+      {/* ... previous SVG defs ... */}
       <svg style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }} aria-hidden="true">
         <defs>
           <radialGradient id="sphereGradient" cx="35%" cy="35%" r="60%" fx="25%" fy="25%">
@@ -174,21 +255,6 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
         </defs>
       </svg>
 
-      <style jsx global>{`
-        .premium-circle {
-          filter: url(#floatShadow);
-          fill: url(#sphereGradient) !important;
-          stroke: #64748b;
-          stroke-width: 1.5px;
-          transition: all 0.3s ease;
-        }
-        .premium-circle:hover {
-           filter: url(#floatShadow) brightness(1.1);
-           stroke: #1e293b;
-           stroke-width: 2px;
-        }
-      `}</style>
-
       <MapContainer
         center={defaultCenter}
         zoom={4}
@@ -199,7 +265,6 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
         <MouseTracker />
         <ViewUpdater marker={selectedMarker} />
         <LayersControl position="topright">
-          {/* ... existing layers control content ... */}
           <LayersControl.BaseLayer checked name="Street View">
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -222,19 +287,16 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
                 style={styleFeature}
                 onEachFeature={(feature, layer) => {
                   onEachFeature(feature, layer);
-
-                  // Add popup directly to GeoJSON layer for better interaction
                   const status = (feature.properties.Status || "").toLowerCase();
                   const label = status === "yes" ? "Active" :
                     (status === "circle" ? "Circle" : "Not Active");
 
                   layer.bindPopup(`
                 <div class="font-sans">
-                  <h3 class="font-bold text-[#004792]">${feature.properties.NAME}</h3>
-                  <p class="text-xs text-gray-600">${feature.properties.State || ""}</p>
-                  <p class="mt-2 text-sm"><strong>Status:</strong> ${label}</p>
-                  ${feature.properties.Business_n ? `<p class="text-sm"><strong>Business:</strong> ${feature.properties.Business_n}</p>` : ""}
-                  <p class="text-[10px] text-gray-400 mt-2">GEOID: ${feature.properties.GEOID}</p>
+                  <h3 class="font-bold text-[#004792] text-sm">${feature.properties.NAME}</h3>
+                  <p class="text-[10px] text-gray-600">${feature.properties.State || ""}</p>
+                  <p class="mt-2 text-[11px]"><strong>Status:</strong> ${label}</p>
+                  ${feature.properties.Business_n ? `<p class="text-[11px]"><strong>Business:</strong> ${feature.properties.Business_n}</p>` : ""}
                 </div>
               `);
                 }}
@@ -249,27 +311,24 @@ export default function MapComponent({ markers, geojson, version = 0, selectedMa
               .filter(m => m.HasExactCoordinates && !isNaN(m.Latitude) && !isNaN(m.Longitude))
               .map((m, idx) => (
                 <Marker 
-                  key={`dealer-pin-${idx}`} 
+                  key={`dealer-pin-${idx}-${version}`} 
                   position={[m.Latitude, m.Longitude]}
-                  icon={L.icon({
-                    iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png",
-                    shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png",
-                    iconSize: [25, 41],
-                    iconAnchor: [12, 41],
-                    popupAnchor: [1, -34],
-                    shadowSize: [41, 41]
-                  })}
+                  icon={customMarkerIcon}
                 >
                   <Popup>
-                    <div className="font-sans min-w-[150px]">
-                      <h3 className="font-bold text-[#1881B7] text-base">{m.BusinessName || m.Name}</h3>
-                      {m.County && <p className="text-xs text-gray-500 mb-2">County: {m.County}</p>}
-                      <div className="inline-block px-2 py-1 rounded bg-red-50 text-red-600 text-[10px] font-bold uppercase tracking-wider mb-1 border border-red-100">
-                        Dealer Location
+                    <div className="font-sans min-w-[160px] p-1">
+                      <div className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-1">Official Dealer</div>
+                      <h3 className="font-bold text-[#1881B7] text-sm leading-tight">
+                        {m.BusinessName || m.Name}
+                      </h3>
+                      {m.County && (
+                        <p className="text-[10px] text-blue-600 font-semibold mb-2">
+                          {m.County} County
+                        </p>
+                      )}
+                      <div className="inline-block px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-[8px] font-black uppercase tracking-wider mb-2 border border-blue-100 shadow-sm">
+                        Verified Location
                       </div>
-                      <p className="mt-1 text-[10px] text-gray-400 font-mono">
-                        {m.Latitude.toFixed(4)}, {m.Longitude.toFixed(4)}
-                      </p>
                     </div>
                   </Popup>
                 </Marker>
